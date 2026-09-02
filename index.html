@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <title>Chesso</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">CHESS</div>
+        <h1>Chesso</h1>
+      </div>
+      <div class="top-actions">
+        <span id="connection" class="connection">Offline</span>
+        <button id="new-game" class="button">New game</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <section class="game-panel">
+        <div class="player black-player">
+          <div><strong id="black-name">Black</strong><small id="black-status">Waiting</small></div>
+          <span id="black-time">10:00</span>
+        </div>
+
+        <div id="chessboard" class="chessboard" aria-label="Chess board"></div>
+
+        <div class="player white-player">
+          <div><strong id="white-name">White</strong><small id="white-status">Your turn</small></div>
+          <span id="white-time">10:00</span>
+        </div>
+
+        <div class="controls">
+          <button id="resign" class="button danger">Resign</button>
+          <button id="draw" class="button">Offer draw</button>
+          <button id="copy-room" class="button">Copy room</button>
+        </div>
+        <p id="message" class="message">White to move.</p>
+      </section>
+
+      <aside class="sidebar">
+        <section class="card">
+          <h2>Game</h2>
+          <div class="stat"><span>Status</span><strong id="game-status">Local game</strong></div>
+          <div class="stat"><span>Turn</span><strong id="turn">White</strong></div>
+          <div class="stat"><span>Room</span><strong id="room-id">Local</strong></div>
+        </section>
+        <section class="card moves-card">
+          <h2>Moves</h2>
+          <ol id="move-list" class="move-list"></ol>
+        </section>
+        <section class="card help">
+          <h2>How to play</h2>
+          <p>Click a piece, then click a highlighted square. Chesso handles legal moves, check, checkmate, castling, en passant and promotion.</p>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
