@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#111111">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0a0a">
   <title>Chesso</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -11,55 +11,107 @@
   <main class="app">
     <header class="topbar">
       <div>
-        <div class="eyebrow">CHESS</div>
+        <div class="eyebrow">Chess</div>
         <h1>Chesso</h1>
       </div>
       <div class="top-actions">
-        <span id="connection" class="connection">Offline</span>
-        <button id="new-game" class="button">New game</button>
+        <span id="connection" class="connection">Connecting…</span>
+        <span id="auth-status" style="font-size: 0.9rem; color: #999;">Guest</span>
+        <button id="auth-button" class="button">Log in</button>
+        <button id="new-game-btn" class="button primary">New Game</button>
       </div>
     </header>
 
-    <section class="layout">
-      <section class="game-panel">
+    <div class="game-layout">
+      <section class="board-area">
         <div class="player black-player">
-          <div><strong id="black-name">Black</strong><small id="black-status">Waiting</small></div>
+          <div>
+            <strong id="black-name">Black</strong>
+            <small id="black-status">Waiting…</small>
+          </div>
           <span id="black-time">10:00</span>
         </div>
 
-        <div id="chessboard" class="chessboard" aria-label="Chess board"></div>
+        <div class="board-shell">
+          <div id="chessboard" aria-label="Chess board"></div>
+        </div>
 
         <div class="player white-player">
-          <div><strong id="white-name">White</strong><small id="white-status">Your turn</small></div>
+          <div>
+            <strong id="white-name">White</strong>
+            <small id="white-status">Your turn</small>
+          </div>
           <span id="white-time">10:00</span>
         </div>
 
-        <div class="controls">
+        <div class="game-controls">
+          <button id="new-game-control" class="button primary" style="flex: 2;">New Game</button>
+          <button id="copy-link" class="button">Copy Link</button>
+          <button id="offer-draw" class="button">Offer Draw</button>
           <button id="resign" class="button danger">Resign</button>
-          <button id="draw" class="button">Offer draw</button>
-          <button id="copy-room" class="button">Copy room</button>
         </div>
-        <p id="message" class="message">White to move.</p>
+
+        <p id="message" style="text-align: center; color: #aaa; font-size: 0.9rem; padding: 1rem; background: #111111; border: 1px solid #222222; border-radius: 0.375rem;">White to move.</p>
       </section>
 
-      <aside class="sidebar">
-        <section class="card">
+      <aside class="game-sidebar">
+        <div class="card">
           <h2>Game</h2>
-          <div class="stat"><span>Status</span><strong id="game-status">Local game</strong></div>
-          <div class="stat"><span>Turn</span><strong id="turn">White</strong></div>
-          <div class="stat"><span>Room</span><strong id="room-id">Local</strong></div>
-        </section>
-        <section class="card moves-card">
+          <div class="stat">
+            <span>Status</span>
+            <strong id="game-status">Local game</strong>
+          </div>
+          <div class="stat">
+            <span>Turn</span>
+            <strong id="turn">White</strong>
+          </div>
+          <div class="stat">
+            <span>Move</span>
+            <strong id="move-count">1</strong>
+          </div>
+        </div>
+
+        <div class="card moves-card">
           <h2>Moves</h2>
           <ol id="move-list" class="move-list"></ol>
-        </section>
-        <section class="card help">
-          <h2>How to play</h2>
-          <p>Click a piece, then click a highlighted square. Chesso handles legal moves, check, checkmate, castling, en passant and promotion.</p>
-        </section>
+        </div>
       </aside>
+    </div>
+
+    <section id="auth-panel" class="auth-panel">
+      <div style="position: relative;">
+        <button class="auth-close" aria-label="Close">×</button>
+        <div class="auth-modal" id="auth-modal">
+          <h1 id="auth-title">Log In</h1>
+          <p id="auth-subtitle">Play chess online with friends</p>
+          
+          <div id="auth-error" class="auth-error"></div>
+
+          <div id="username-group" class="form-group" style="display: none;">
+            <label for="username">Username</label>
+            <input type="text" id="username" placeholder="your username">
+          </div>
+
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="you@example.com">
+          </div>
+
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="••••••••">
+          </div>
+
+          <button id="auth-submit" class="button primary">Log In</button>
+
+          <div class="auth-toggle">
+            Don't have an account? <button id="toggle-signup">Sign up</button>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
+
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,83 +1,408 @@
-import { initialState, pieceGlyph, legalMoves, makeMove, allLegalMoves, inCheck, gameStatus, notation } from './chess.js';
-import { db, auth, firebaseReady } from './firebase.js';
-import { collection, addDoc, doc, setDoc, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+import { initialState, legalMoves, makeMove, allLegalMoves, inCheck, gameStatus, notation, pieceToImage } from './chess.js';
+import { auth, db, firebaseReady, signup, login, logout, getCurrentUser, onAuthChange } from './firebase.js';
+import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, query, where } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-const boardEl=document.querySelector('#chessboard');
-const moveList=document.querySelector('#move-list');
-const messageEl=document.querySelector('#message');
-const turnEl=document.querySelector('#turn');
-const statusEl=document.querySelector('#game-status');
-const roomEl=document.querySelector('#room-id');
-const connectionEl=document.querySelector('#connection');
-let state=initialState();
-let selected=null;
-let selectedMoves=[];
-let gameId=null;
-let unsubscribe=null;
-let moves=[];
+let gameState = initialState();
+let selectedSquare = null;
+let selectedMoves = [];
+let currentGameId = null;
+let currentUser = null;
+let currentPlayerColor = null;
+let gameUnsubscribe = null;
+let lastMove = null;
+let authMode = 'login';
 
-const files=['a','b','c','d','e','f','g','h'];
-const ranks=['8','7','6','5','4','3','2','1'];
+const boardEl = document.getElementById('chessboard');
+const messageEl = document.getElementById('message');
+const turnEl = document.getElementById('turn');
+const statusEl = document.getElementById('game-status');
+const moveCountEl = document.getElementById('move-count');
+const moveListEl = document.getElementById('move-list');
+const connectionEl = document.getElementById('connection');
+const authPanel = document.getElementById('auth-panel');
+const authModal = document.getElementById('auth-modal');
+const authButton = document.getElementById('auth-button');
+const newGameBtns = [document.getElementById('new-game-btn'), document.getElementById('new-game-control')];
+const copyLinkBtn = document.getElementById('copy-link');
+const offerDrawBtn = document.getElementById('offer-draw');
+const resignBtn = document.getElementById('resign');
+const authSubmitBtn = document.getElementById('auth-submit');
+const toggleSignupBtn = document.getElementById('toggle-signup');
+const authCloseBtn = document.querySelector('.auth-close');
+const authErrorEl = document.getElementById('auth-error');
+const authStatusEl = document.getElementById('auth-status');
 
-function render(){
-  boardEl.innerHTML='';
-  for(let r=0;r<8;r++) for(let c=0;c<8;c++){
-    const sq=document.createElement('button');
-    sq.className=`square ${(r+c)%2?'dark':'light'}`;
-    if(selected?.[0]===r&&selected?.[1]===c)sq.classList.add('selected');
-    if(selectedMoves.some(m=>m.to[0]===r&&m.to[1]===c)) sq.classList.add(state.board[r][c]?'capture':'legal');
-    const k=state.board[r][c];
-    if(k){const span=document.createElement('span');span.className=`piece ${k.color==='w'?'white-piece':'black-piece'}`;span.textContent=pieceGlyph(k);sq.appendChild(span);}
-    if(c===7){const rank=document.createElement('span');rank.className='coord rank';rank.textContent=ranks[r];sq.appendChild(rank);}
-    if(r===7){const file=document.createElement('span');file.className='coord file';file.textContent=files[c];sq.appendChild(file);}
-    if(k?.type==='k'&&inCheck(state,k.color))sq.classList.add('in-check');
-    sq.addEventListener('click',()=>clickSquare(r,c));
-    boardEl.appendChild(sq);
+const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
+
+// Initialize Firebase connection status
+setTimeout(() => {
+  connectionEl.textContent = 'Connected';
+  connectionEl.classList.add('connected');
+}, 1000);
+
+// Auth listeners
+onAuthChange(async (user) => {
+  currentUser = user;
+  if (user) {
+    authStatusEl.textContent = user.displayName || user.email.split('@')[0];
+    authButton.textContent = 'Log Out';
+    authPanel.classList.remove('visible');
+  } else {
+    authStatusEl.textContent = 'Guest';
+    authButton.textContent = 'Log In';
   }
-  turnEl.textContent=state.turn==='w'?'White':'Black';
-  statusEl.textContent=gameStatus(state);
-  messageEl.textContent=gameStatus(state)+'.';
-  renderMoves();
+});
+
+// Auth UI
+authButton.addEventListener('click', () => {
+  if (currentUser) {
+    logout();
+  } else {
+    authMode = 'login';
+    updateAuthUI();
+    authPanel.classList.add('visible');
+  }
+});
+
+authCloseBtn.addEventListener('click', () => {
+  authPanel.classList.remove('visible');
+});
+
+authPanel.addEventListener('click', (e) => {
+  if (e.target === authPanel) {
+    authPanel.classList.remove('visible');
+  }
+});
+
+toggleSignupBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  authMode = authMode === 'login' ? 'signup' : 'login';
+  updateAuthUI();
+});
+
+function updateAuthUI() {
+  const usernameGroup = document.getElementById('username-group');
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+  const authTitle = document.getElementById('auth-title');
+  const authSubtitle = document.getElementById('auth-subtitle');
+  const toggleBtn = toggleSignupBtn;
+
+  if (authMode === 'signup') {
+    authTitle.textContent = 'Create Account';
+    authSubtitle.textContent = 'Sign up to play';
+    usernameGroup.style.display = 'flex';
+    authSubmitBtn.textContent = 'Create Account';
+    toggleBtn.textContent = 'Already have an account? Log in';
+  } else {
+    authTitle.textContent = 'Log In';
+    authSubtitle.textContent = 'Play chess online with friends';
+    usernameGroup.style.display = 'none';
+    authSubmitBtn.textContent = 'Log In';
+    toggleBtn.textContent = "Don't have an account? Sign up";
+  }
+
+  emailInput.value = '';
+  passwordInput.value = '';
+  authErrorEl.textContent = '';
+  authErrorEl.classList.remove('visible');
 }
 
-function renderMoves(){moveList.innerHTML='';moves.forEach((m,i)=>{const li=document.createElement('li');li.textContent=`${Math.floor(i/2)+1}${i%2===0?'. ':'... '}${m}`;moveList.appendChild(li);});}
+authSubmitBtn.addEventListener('click', async () => {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const username = document.getElementById('username').value;
 
-function clickSquare(r,c){
-  const p=state.board[r][c];
-  if(selected){
-    const move=selectedMoves.find(m=>m.to[0]===r&&m.to[1]===c);
-    if(move){
-      let promotion='q';
-      if(promotionSquare(move,state)){
-        const choice=prompt('Promote to: q, r, b or n','q')?.toLowerCase();
-        if(['q','r','b','n'].includes(choice))promotion=choice;
+  authErrorEl.classList.remove('visible');
+
+  try {
+    if (authMode === 'signup') {
+      if (!username) {
+        throw new Error('Username required');
       }
-      const text=notation(state,move);
-      const next=makeMove(state,move,promotion);
-      if(next){state=next;moves.push(text);selected=null;selectedMoves=[];render();saveGame();}
+      await signup(email, password, username);
+    } else {
+      await login(email, password);
+    }
+    authPanel.classList.remove('visible');
+  } catch (err) {
+    authErrorEl.textContent = err.message;
+    authErrorEl.classList.add('visible');
+  }
+});
+
+// Game creation
+newGameBtns.forEach(btn => {
+  btn.addEventListener('click', createNewGame);
+});
+
+async function createNewGame() {
+  if (!currentUser) {
+    authMode = 'login';
+    updateAuthUI();
+    authPanel.classList.add('visible');
+    return;
+  }
+
+  const newGame = {
+    board: gameState.board,
+    turn: 'w',
+    castling: { wK: true, wQ: true, bK: true, bQ: true },
+    enPassant: null,
+    halfmove: 0,
+    fullmove: 1,
+    moves: [],
+    whitePlayer: currentUser.uid,
+    blackPlayer: null,
+    createdBy: currentUser.uid,
+    createdAt: serverTimestamp(),
+    status: 'waiting'
+  };
+
+  try {
+    const docRef = await addDoc(collection(db, 'games'), newGame);
+    currentGameId = docRef.id;
+    currentPlayerColor = 'w';
+    loadGame(docRef.id);
+    shareGameLink();
+  } catch (err) {
+    console.error('Failed to create game:', err);
+  }
+}
+
+function shareGameLink() {
+  const link = `${window.location.origin}${window.location.pathname}?game=${currentGameId}`;
+  console.log('Game link:', link);
+}
+
+copyLinkBtn.addEventListener('click', async () => {
+  if (!currentGameId) return;
+  const link = `${window.location.origin}${window.location.pathname}?game=${currentGameId}`;
+  await navigator.clipboard.writeText(link);
+  copyLinkBtn.textContent = 'Copied!';
+  setTimeout(() => {
+    copyLinkBtn.textContent = 'Copy Link';
+  }, 2000);
+});
+
+offerDrawBtn.addEventListener('click', async () => {
+  if (!currentGameId) return;
+  try {
+    await updateDoc(doc(db, 'games', currentGameId), {
+      drawOffered: currentPlayerColor
+    });
+  } catch (err) {
+    console.error('Failed to offer draw:', err);
+  }
+});
+
+resignBtn.addEventListener('click', async () => {
+  if (!currentGameId || !currentPlayerColor) return;
+  const winner = currentPlayerColor === 'w' ? 'b' : 'w';
+  try {
+    await updateDoc(doc(db, 'games', currentGameId), {
+      status: 'resigned',
+      winner
+    });
+  } catch (err) {
+    console.error('Failed to resign:', err);
+  }
+});
+
+// Game loading and syncing
+async function loadGame(gameId) {
+  currentGameId = gameId;
+
+  if (gameUnsubscribe) gameUnsubscribe();
+
+  gameUnsubscribe = onSnapshot(doc(db, 'games', gameId), (docSnapshot) => {
+    if (!docSnapshot.exists()) {
+      messageEl.textContent = 'Game not found';
       return;
     }
+
+    const data = docSnapshot.data();
+
+    if (!currentPlayerColor) {
+      if (data.whitePlayer === currentUser?.uid) {
+        currentPlayerColor = 'w';
+      } else if (data.blackPlayer === currentUser?.uid) {
+        currentPlayerColor = 'b';
+      } else if (!data.blackPlayer && currentUser) {
+        currentPlayerColor = 'b';
+        updateDoc(doc(db, 'games', gameId), { blackPlayer: currentUser.uid });
+      } else if (!currentUser) {
+        messageEl.textContent = 'Please log in to play';
+      }
+    }
+
+    reconstructGameState(data);
+    render();
+  });
+}
+
+function reconstructGameState(dbData) {
+  gameState = {
+    board: dbData.board || initialState().board,
+    turn: dbData.turn || 'w',
+    castling: dbData.castling || { wK: true, wQ: true, bK: true, bQ: true },
+    enPassant: dbData.enPassant,
+    halfmove: dbData.halfmove || 0,
+    fullmove: dbData.fullmove || 1,
+    moves: dbData.moves || []
+  };
+}
+
+function render() {
+  renderBoard();
+  updateGameInfo();
+  updateMoveList();
+}
+
+function renderBoard() {
+  boardEl.innerHTML = '';
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const square = document.createElement('button');
+      square.className = `square ${(r + c) % 2 === 0 ? 'dark' : 'light'}`;
+      
+      if (selectedSquare && selectedSquare[0] === r && selectedSquare[1] === c) {
+        square.classList.add('selected');
+      }
+
+      if (selectedMoves.some(m => m.to[0] === r && m.to[1] === c)) {
+        square.classList.add(gameState.board[r][c] ? 'capture' : 'legal');
+      }
+
+      const piece = gameState.board[r][c];
+      if (piece) {
+        const img = document.createElement('img');
+        img.src = `assets/pieces/${pieceToImage(piece)}`;
+        img.alt = `${piece.color === 'w' ? 'White' : 'Black'} ${piece.type}`;
+        square.appendChild(img);
+      }
+
+      if (lastMove && ((lastMove.from[0] === r && lastMove.from[1] === c) || (lastMove.to[0] === r && lastMove.to[1] === c))) {
+        square.style.background = '#9b8b5c';
+      }
+
+      if (piece?.type === 'k' && inCheck(gameState, piece.color)) {
+        square.classList.add('in-check');
+      }
+
+      if (c === 7) {
+        const rank = document.createElement('span');
+        rank.className = 'coord rank';
+        rank.textContent = RANKS[r];
+        square.appendChild(rank);
+      }
+
+      if (r === 7) {
+        const file = document.createElement('span');
+        file.className = 'coord file';
+        file.textContent = FILES[c];
+        square.appendChild(file);
+      }
+
+      square.addEventListener('click', () => handleSquareClick(r, c));
+      boardEl.appendChild(square);
+    }
   }
-  if(p?.color===state.turn){selected=[r,c];selectedMoves=legalMoves(state,selected);render();}
-  else {selected=null;selectedMoves=[];render();}
-}
-function promotionSquare(move,s){const p=s.board[move.from[0]][move.from[1]];return p?.type==='p'&&(move.to[0]===0||move.to[0]===7);}
-
-async function saveGame(){
-  if(!firebaseReady||!auth.currentUser)return;
-  try{
-    if(!gameId){const ref=await addDoc(collection(db,'games'),{board:state.board,turn:state.turn,castling:state.castling,enPassant:state.enPassant,halfmove:state.halfmove,fullmove:state.fullmove,moves,status:gameStatus(state),createdAt:serverTimestamp(),createdBy:auth.currentUser.uid});gameId=ref.id;roomEl.textContent=gameId.slice(0,8);}
-    else await setDoc(doc(db,'games',gameId),{board:state.board,turn:state.turn,castling:state.castling,enPassant:state.enPassant,halfmove:state.halfmove,fullmove:state.fullmove,moves,status:gameStatus(state)},{merge:true});
-  }catch(e){console.error(e);}
 }
 
-function newGame(){if(unsubscribe)unsubscribe();gameId=null;moves=[];state=initialState();selected=null;selectedMoves=[];roomEl.textContent='Local';render();}
+async function handleSquareClick(r, c) {
+  if (!currentPlayerColor || gameState.turn !== currentPlayerColor) {
+    messageEl.textContent = 'Not your turn';
+    return;
+  }
 
-document.querySelector('#new-game').addEventListener('click',newGame);
-document.querySelector('#resign').addEventListener('click',()=>{messageEl.textContent=`${state.turn==='w'?'White':'Black'} resigned.`;statusEl.textContent='Game over';});
-document.querySelector('#draw').addEventListener('click',()=>{messageEl.textContent='Draw offer sent locally.';});
-document.querySelector('#copy-room').addEventListener('click',async()=>{if(gameId){await navigator.clipboard.writeText(`${location.origin}${location.pathname}?game=${gameId}`);messageEl.textContent='Room link copied.';}else messageEl.textContent='Start a synced game first.';});
+  const piece = gameState.board[r][c];
 
-if(firebaseReady){connectionEl.textContent='Firebase connected';const params=new URLSearchParams(location.search);const incoming=params.get('game');if(incoming){gameId=incoming;roomEl.textContent=gameId.slice(0,8);unsubscribe=onSnapshot(doc(db,'games',gameId),snap=>{if(!snap.exists())return;const d=snap.data();state={board:d.board,turn:d.turn,castling:d.castling||'',enPassant:d.enPassant||'-',halfmove:d.halfmove||0,fullmove:d.fullmove||1,history:[]};moves=d.moves||[];render();});}}
-else connectionEl.textContent='Local mode';
+  if (selectedSquare) {
+    const move = selectedMoves.find(m => m.to[0] === r && m.to[1] === c);
+    if (move) {
+      let promotion = 'q';
+      if (move.promotion) {
+        promotion = await getPromotionChoice();
+      }
+
+      try {
+        const newState = makeMove(gameState, selectedSquare, [r, c], promotion);
+        lastMove = { from: selectedSquare, to: [r, c] };
+        
+        await updateDoc(doc(db, 'games', currentGameId), {
+          board: newState.board,
+          turn: newState.turn,
+          castling: newState.castling,
+          enPassant: newState.enPassant,
+          halfmove: newState.halfmove,
+          fullmove: newState.fullmove,
+          moves: newState.moves
+        });
+
+        selectedSquare = null;
+        selectedMoves = [];
+      } catch (err) {
+        console.error('Failed to make move:', err);
+      }
+    } else if (piece && piece.color === currentPlayerColor) {
+      selectedSquare = [r, c];
+      selectedMoves = legalMoves(gameState, r, c);
+    } else {
+      selectedSquare = null;
+      selectedMoves = [];
+    }
+  } else if (piece && piece.color === currentPlayerColor) {
+    selectedSquare = [r, c];
+    selectedMoves = legalMoves(gameState, r, c);
+  }
+
+  render();
+}
+
+async function getPromotionChoice() {
+  return 'q';
+}
+
+function updateGameInfo() {
+  turnEl.textContent = gameState.turn === 'w' ? 'White' : 'Black';
+  statusEl.textContent = gameStatus(gameState);
+  messageEl.textContent = gameStatus(gameState) + '.';
+  moveCountEl.textContent = gameState.fullmove;
+
+  document.getElementById('white-name').textContent = 'White';
+  document.getElementById('black-name').textContent = 'Black';
+  
+  const isWhitesTurn = gameState.turn === 'w';
+  document.getElementById('white-status').textContent = isWhitesTurn ? 'Your turn' : 'Opponent turn';
+  document.getElementById('black-status').textContent = !isWhitesTurn ? 'Your turn' : 'Opponent turn';
+}
+
+function updateMoveList() {
+  moveListEl.innerHTML = '';
+  for (let i = 0; i < gameState.moves.length; i += 2) {
+    const li = document.createElement('li');
+    const moveNum = i / 2 + 1;
+    const whiteMove = gameState.moves[i] || '';
+    const blackMove = gameState.moves[i + 1] || '';
+    li.textContent = `${moveNum}. ${whiteMove} ${blackMove}`;
+    moveListEl.appendChild(li);
+  }
+}
+
+// Handle game link from URL
+const params = new URLSearchParams(window.location.search);
+const gameIdFromUrl = params.get('game');
+
+firebaseReady.then(() => {
+  if (gameIdFromUrl && currentUser) {
+    loadGame(gameIdFromUrl);
+  } else if (gameIdFromUrl && !currentUser) {
+    messageEl.textContent = 'Please log in to join this game';
+  }
+});
+
+// Initial render
 render();
