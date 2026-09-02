@@ -16,9 +16,31 @@
       </div>
       <div class="top-actions">
         <span id="connection" class="connection">Offline</span>
+        <span id="account-name" class="account-name">Guest</span>
+        <button id="account-button" class="button">Log in</button>
         <button id="new-game" class="button">New game</button>
       </div>
     </header>
+
+    <section id="auth-panel" class="auth-panel hidden">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div>
+            <div class="eyebrow">CHESSO ACCOUNT</div>
+            <h2 id="auth-title">Log in</h2>
+          </div>
+          <button id="auth-close" class="icon-button" aria-label="Close">×</button>
+        </div>
+        <form id="auth-form">
+          <label id="username-field" class="auth-field hidden">Username<input id="username-input" type="text" maxlength="24" autocomplete="username"></label>
+          <label class="auth-field">Email<input id="email-input" type="email" autocomplete="email" required></label>
+          <label class="auth-field">Password<input id="password-input" type="password" minlength="6" autocomplete="current-password" required></label>
+          <button id="auth-submit" class="button primary" type="submit">Log in</button>
+        </form>
+        <p id="auth-message" class="auth-message"></p>
+        <button id="auth-switch" class="text-button" type="button">Need an account? Sign up</button>
+      </div>
+    </section>
 
     <section class="layout">
       <section class="game-panel">
