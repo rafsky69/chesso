@@ -12,7 +12,11 @@ A lightweight browser chess app built with vanilla JavaScript and Firebase.
 - En passant
 - Promotion
 - Move list
-- Firebase Anonymous Auth + Firestore room syncing
+- Firebase Email/Password accounts
+- Firestore user profiles
+- Authenticated multiplayer room syncing
+- Automatic white/black player assignment
+- Persistent login sessions
 - No npm, React, Vue, TypeScript, or build step
 
 ## Run locally
@@ -34,7 +38,7 @@ Install the **Live Server** extension, right-click `index.html`, and choose **Op
 
 ## Firebase setup
 
-The app works in local mode without Firebase. Firebase is only needed for synced rooms.
+Firebase powers accounts and multiplayer rooms.
 
 ### 1. Create the project
 
@@ -44,39 +48,78 @@ Go to the Firebase Console and create a project.
 
 In Project settings, add a Web app. Firebase will give you a configuration object.
 
-Open `firebase.js` and replace the placeholder values in `firebaseConfig` with the values Firebase gives you.
+Open `firebase.js` and replace the values in `firebaseConfig` with the values Firebase gives you.
 
-The web config is intended to be included in client code. The important security layer is your Firebase Authentication configuration and Firestore Security Rules, not hiding the web config.
+The web config is intended to be included in client code. Never put service-account private keys, passwords, or access tokens in the browser code.
 
-### 3. Enable Anonymous Authentication
+### 3. Enable Email/Password accounts
 
-Firebase Console → Authentication → Sign-in method → Anonymous → Enable.
+Firebase Console → Authentication → Sign-in method → Email/Password → Enable.
+
+Anonymous Authentication is no longer required by Chesso.
 
 ### 4. Create Firestore
 
 Firebase Console → Firestore Database → Create database.
 
-For development, choose a development setup, then replace the rules with something like:
+Use these development rules for the current MVP:
 
 ```text
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /games/{gameId} {
-      allow read, create, update: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.whitePlayer == request.auth.uid
+        && request.resource.data.blackPlayer == null
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow read: if request.auth != null;
+
+      allow update: if request.auth != null
+        && (
+          resource.data.whitePlayer == request.auth.uid
+          || resource.data.blackPlayer == request.auth.uid
+          || (
+            resource.data.blackPlayer == null
+            && request.resource.data.blackPlayer == request.auth.uid
+            && request.resource.data.whitePlayer == resource.data.whitePlayer
+          )
+        );
+
       allow delete: if false;
     }
   }
 }
 ```
 
-For a public production game, tighten these rules further and add a real player/room authorization model. Do not ship a wide-open Firestore database and then discover the internet can edit every game. Civilization has suffered enough from this pattern.
+These rules protect account documents and limit game writes to the assigned players. They do not make the chess engine server-authoritative yet, so a determined client could still manipulate a game document. A production version should validate moves on a trusted backend.
 
-### 5. Test
+### 5. Test accounts
 
-Start the local server again and reload the page. The status pill should say **Firebase connected**.
+Reload the app. The top-right account button should say **Log in**.
 
-Create a game and press **Copy room**. Opening the copied URL in another browser session loads the same Firestore game document.
+Click it, switch to **Sign up**, and create an account with:
+
+- Username
+- Email
+- Password (at least 6 characters)
+
+Firebase keeps the session, so refreshing the page should keep you logged in.
+
+### 6. Test multiplayer
+
+1. Log in to account A.
+2. Click **New game**.
+3. Chesso creates a Firestore room and assigns account A as White.
+4. Click **Copy room**.
+5. Open the copied URL in another browser/profile and log in as account B.
+6. Account B is automatically assigned Black.
+7. Both players see the same board and move list through Firestore.
 
 ## GitHub Pages
 
@@ -88,28 +131,27 @@ This project is static, so it can also be deployed with GitHub Pages:
 4. Save.
 5. Wait for GitHub Pages to publish the site.
 
-Firebase's web configuration can be used from the deployed site, but make sure your Firebase Authentication authorized domains include the GitHub Pages domain.
+Add the deployed GitHub Pages domain to Firebase Authentication → Settings → Authorized domains.
 
 ## Project structure
 
 ```text
 chesso/
-├── index.html      # App structure
-├── style.css       # UI and board styling
-├── app.js          # UI, interactions, room syncing
+├── index.html      # App structure and account UI
+├── style.css       # UI, board, and account styling
+├── app.js          # UI, authentication, games, and room syncing
 ├── chess.js        # Chess rules and state engine
-├── firebase.js     # Firebase initialization
+├── firebase.js     # Firebase initialization and account helpers
 └── README.md       # Setup instructions
 ```
 
-## Next sensible upgrades
+## Next upgrades
 
-- Proper multiplayer color assignment
-- Server-authoritative moves
-- Clocks
+- Server-authoritative move validation
+- Real chess clocks
 - Draw offers and resignations stored in Firestore
-- User accounts and profiles
-- Game history
+- Game history per account
 - Rematch
 - FEN/PGN import/export
 - Chess engine analysis
+- Google/Apple sign-in
