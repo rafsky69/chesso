@@ -1,6 +1,6 @@
-import { initialState, legalMoves, makeMove, allLegalMoves, inCheck, gameStatus, notation, pieceToImage } from './chess.js';
+import { initialState, legalMoves, makeMove, allLegalMoves, inCheck, gameStatus, pieceToImage } from './chess.js';
 import { auth, db, firebaseReady, signup, login, logout, getCurrentUser, onAuthChange } from './firebase.js';
-import { collection, addDoc, doc, setDoc, getDoc, onSnapshot, updateDoc, serverTimestamp, query, where } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+import { collection, addDoc, doc, onSnapshot, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
 let gameState = initialState();
 let selectedSquare = null;
@@ -20,7 +20,6 @@ const moveCountEl = document.getElementById('move-count');
 const moveListEl = document.getElementById('move-list');
 const connectionEl = document.getElementById('connection');
 const authPanel = document.getElementById('auth-panel');
-const authModal = document.getElementById('auth-modal');
 const authButton = document.getElementById('auth-button');
 const newGameBtns = [document.getElementById('new-game-btn'), document.getElementById('new-game-control')];
 const copyLinkBtn = document.getElementById('copy-link');
@@ -35,17 +34,17 @@ const authStatusEl = document.getElementById('auth-status');
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
 
-// Initialize Firebase connection status
-setTimeout(() => {
+// Initialize Firebase connection
+firebaseReady.then(() => {
   connectionEl.textContent = 'Connected';
   connectionEl.classList.add('connected');
-}, 1000);
+});
 
 // Auth listeners
-onAuthChange(async (user) => {
+onAuthChange((user) => {
   currentUser = user;
   if (user) {
-    authStatusEl.textContent = user.displayName || user.email.split('@')[0];
+    authStatusEl.textContent = user.email.split('@')[0];
     authButton.textContent = 'Log Out';
     authPanel.classList.remove('visible');
   } else {
@@ -87,20 +86,19 @@ function updateAuthUI() {
   const passwordInput = document.getElementById('password');
   const authTitle = document.getElementById('auth-title');
   const authSubtitle = document.getElementById('auth-subtitle');
-  const toggleBtn = toggleSignupBtn;
 
   if (authMode === 'signup') {
     authTitle.textContent = 'Create Account';
     authSubtitle.textContent = 'Sign up to play';
     usernameGroup.style.display = 'flex';
     authSubmitBtn.textContent = 'Create Account';
-    toggleBtn.textContent = 'Already have an account? Log in';
+    toggleSignupBtn.textContent = 'Already have an account? Log in';
   } else {
     authTitle.textContent = 'Log In';
     authSubtitle.textContent = 'Play chess online with friends';
     usernameGroup.style.display = 'none';
     authSubmitBtn.textContent = 'Log In';
-    toggleBtn.textContent = "Don't have an account? Sign up";
+    toggleSignupBtn.textContent = "Don't have an account? Sign up";
   }
 
   emailInput.value = '';
@@ -118,9 +116,7 @@ authSubmitBtn.addEventListener('click', async () => {
 
   try {
     if (authMode === 'signup') {
-      if (!username) {
-        throw new Error('Username required');
-      }
+      if (!username) throw new Error('Username required');
       await signup(email, password, username);
     } else {
       await login(email, password);
@@ -145,8 +141,9 @@ async function createNewGame() {
     return;
   }
 
+  const newGameState = initialState();
   const newGame = {
-    board: gameState.board,
+    board: newGameState.board,
     turn: 'w',
     castling: { wK: true, wQ: true, bK: true, bQ: true },
     enPassant: null,
@@ -165,25 +162,24 @@ async function createNewGame() {
     currentGameId = docRef.id;
     currentPlayerColor = 'w';
     loadGame(docRef.id);
-    shareGameLink();
   } catch (err) {
     console.error('Failed to create game:', err);
+    messageEl.textContent = 'Error creating game';
   }
-}
-
-function shareGameLink() {
-  const link = `${window.location.origin}${window.location.pathname}?game=${currentGameId}`;
-  console.log('Game link:', link);
 }
 
 copyLinkBtn.addEventListener('click', async () => {
   if (!currentGameId) return;
   const link = `${window.location.origin}${window.location.pathname}?game=${currentGameId}`;
-  await navigator.clipboard.writeText(link);
-  copyLinkBtn.textContent = 'Copied!';
-  setTimeout(() => {
-    copyLinkBtn.textContent = 'Copy Link';
-  }, 2000);
+  try {
+    await navigator.clipboard.writeText(link);
+    copyLinkBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      copyLinkBtn.textContent = 'Copy Link';
+    }, 2000);
+  } catch (err) {
+    console.error('Failed to copy:', err);
+  }
 });
 
 offerDrawBtn.addEventListener('click', async () => {
@@ -205,6 +201,7 @@ resignBtn.addEventListener('click', async () => {
       status: 'resigned',
       winner
     });
+    messageEl.textContent = `Game resigned. ${winner === 'w' ? 'White' : 'Black'} wins.`;
   } catch (err) {
     console.error('Failed to resign:', err);
   }
@@ -213,10 +210,12 @@ resignBtn.addEventListener('click', async () => {
 // Game loading and syncing
 async function loadGame(gameId) {
   currentGameId = gameId;
+  selectedSquare = null;
+  selectedMoves = [];
 
   if (gameUnsubscribe) gameUnsubscribe();
 
-  gameUnsubscribe = onSnapshot(doc(db, 'games', gameId), (docSnapshot) => {
+  gameUnsubscribe = onSnapshot(doc(db, 'games', gameId), async (docSnapshot) => {
     if (!docSnapshot.exists()) {
       messageEl.textContent = 'Game not found';
       return;
@@ -230,15 +229,23 @@ async function loadGame(gameId) {
       } else if (data.blackPlayer === currentUser?.uid) {
         currentPlayerColor = 'b';
       } else if (!data.blackPlayer && currentUser) {
-        currentPlayerColor = 'b';
-        updateDoc(doc(db, 'games', gameId), { blackPlayer: currentUser.uid });
+        try {
+          currentPlayerColor = 'b';
+          await updateDoc(doc(db, 'games', gameId), { blackPlayer: currentUser.uid });
+        } catch (err) {
+          console.error('Failed to join game:', err);
+        }
       } else if (!currentUser) {
         messageEl.textContent = 'Please log in to play';
+        return;
       }
     }
 
     reconstructGameState(data);
     render();
+  }, (error) => {
+    console.error('Game sync error:', error);
+    messageEl.textContent = 'Connection error';
   });
 }
 
@@ -247,7 +254,7 @@ function reconstructGameState(dbData) {
     board: dbData.board || initialState().board,
     turn: dbData.turn || 'w',
     castling: dbData.castling || { wK: true, wQ: true, bK: true, bQ: true },
-    enPassant: dbData.enPassant,
+    enPassant: dbData.enPassant || null,
     halfmove: dbData.halfmove || 0,
     fullmove: dbData.fullmove || 1,
     moves: dbData.moves || []
@@ -266,7 +273,8 @@ function renderBoard() {
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const square = document.createElement('button');
-      square.className = `square ${(r + c) % 2 === 0 ? 'dark' : 'light'}`;
+      square.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+      square.style.position = 'relative';
       
       if (selectedSquare && selectedSquare[0] === r && selectedSquare[1] === c) {
         square.classList.add('selected');
@@ -279,8 +287,10 @@ function renderBoard() {
       const piece = gameState.board[r][c];
       if (piece) {
         const img = document.createElement('img');
-        img.src = `assets/pieces/${pieceToImage(piece)}`;
+        const imageName = pieceToImage(piece);
+        img.src = `assets/pieces/${imageName}`;
         img.alt = `${piece.color === 'w' ? 'White' : 'Black'} ${piece.type}`;
+        img.style.cssText = 'width: 100%; height: 100%; object-fit: contain; user-select: none; pointer-events: none;';
         square.appendChild(img);
       }
 
@@ -313,8 +323,13 @@ function renderBoard() {
 }
 
 async function handleSquareClick(r, c) {
-  if (!currentPlayerColor || gameState.turn !== currentPlayerColor) {
-    messageEl.textContent = 'Not your turn';
+  if (!currentPlayerColor) {
+    messageEl.textContent = 'Please log in to play';
+    return;
+  }
+
+  if (gameState.turn !== currentPlayerColor) {
+    messageEl.textContent = `Not your turn`;
     return;
   }
 
@@ -346,6 +361,7 @@ async function handleSquareClick(r, c) {
         selectedMoves = [];
       } catch (err) {
         console.error('Failed to make move:', err);
+        messageEl.textContent = 'Error making move';
       }
     } else if (piece && piece.color === currentPlayerColor) {
       selectedSquare = [r, c];
@@ -357,6 +373,9 @@ async function handleSquareClick(r, c) {
   } else if (piece && piece.color === currentPlayerColor) {
     selectedSquare = [r, c];
     selectedMoves = legalMoves(gameState, r, c);
+  } else {
+    selectedSquare = null;
+    selectedMoves = [];
   }
 
   render();
@@ -368,8 +387,9 @@ async function getPromotionChoice() {
 
 function updateGameInfo() {
   turnEl.textContent = gameState.turn === 'w' ? 'White' : 'Black';
-  statusEl.textContent = gameStatus(gameState);
-  messageEl.textContent = gameStatus(gameState) + '.';
+  const status = gameStatus(gameState);
+  statusEl.textContent = status;
+  messageEl.textContent = status + '.';
   moveCountEl.textContent = gameState.fullmove;
 
   document.getElementById('white-name').textContent = 'White';
@@ -387,7 +407,7 @@ function updateMoveList() {
     const moveNum = i / 2 + 1;
     const whiteMove = gameState.moves[i] || '';
     const blackMove = gameState.moves[i + 1] || '';
-    li.textContent = `${moveNum}. ${whiteMove} ${blackMove}`;
+    li.textContent = `${moveNum}. ${whiteMove} ${blackMove ? ' ' + blackMove : ''}`;
     moveListEl.appendChild(li);
   }
 }
@@ -396,13 +416,25 @@ function updateMoveList() {
 const params = new URLSearchParams(window.location.search);
 const gameIdFromUrl = params.get('game');
 
-firebaseReady.then(() => {
-  if (gameIdFromUrl && currentUser) {
-    loadGame(gameIdFromUrl);
-  } else if (gameIdFromUrl && !currentUser) {
-    messageEl.textContent = 'Please log in to join this game';
+firebaseReady.then(async (user) => {
+  if (gameIdFromUrl) {
+    if (user) {
+      loadGame(gameIdFromUrl);
+    } else {
+      messageEl.textContent = 'Please log in to join this game';
+      const originalAuthMode = authMode;
+      authMode = 'login';
+      updateAuthUI();
+      
+      const checkUser = setInterval(() => {
+        if (currentUser) {
+          clearInterval(checkUser);
+          loadGame(gameIdFromUrl);
+        }
+      }, 500);
+    }
   }
 });
 
-// Initial render
+// Initial render for local game
 render();

@@ -206,6 +206,7 @@ html, body {
   border-radius: 0.25rem;
   overflow: hidden;
   transition: background 0.1s ease;
+  padding: 0;
 }
 
 .square.dark {
@@ -232,24 +233,14 @@ html, body {
   background: #dc2626 !important;
 }
 
-.piece {
-  position: relative;
-  width: 90%;
-  height: 90%;
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.piece img {
-  width: 100%;
-  height: 100%;
+.square img {
+  display: block;
+  width: 85%;
+  height: 85%;
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .coord {
