@@ -150,6 +150,8 @@ function kingMoves(state, row, col, color) {
 
 export function makeMove(state, from, to, promotionPiece = 'q') {
   const piece = state.board[from[0]][from[1]];
+  if (!piece) throw new Error('No piece at source square');
+  
   const newState = JSON.parse(JSON.stringify(state));
 
   if (piece.type === 'p' && from[1] !== to[1] && !newState.board[to[0]][to[1]]) {
